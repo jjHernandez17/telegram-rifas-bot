@@ -1032,6 +1032,12 @@ async def rifa_desc(update, context):
         f"🎫 {rifa['nombre']}",
         parse_mode="Markdown"
     )
+    
+    keyboard = [[InlineKeyboardButton("◀️ Volver", callback_data="ir_admin")]]
+    await update.message.reply_text(
+        "¿Qué deseas hacer ahora?",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
     return ConversationHandler.END
 
@@ -1118,18 +1124,21 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📊 Estadísticas", callback_data="admin_stats")],
         [InlineKeyboardButton("📥 Pagos pendientes", callback_data="admin_pagos")],
+        [InlineKeyboardButton("📒 Talonario", callback_data="admin_talonario")],
+        [InlineKeyboardButton("🎟️ Crear rifa", callback_data="admin_crear_rifa")],
+        [InlineKeyboardButton("🗑️ Eliminar rifa", callback_data="admin_eliminar_rifa")],
         [InlineKeyboardButton("◀️ Volver", callback_data="menu_principal")],
     ]
 
     if hasattr(update, 'message') and update.message:
         await update.message.reply_text(
-            "🛠 *PANEL ADMIN*",
+            "🛠 *PANEL ADMIN*\n\nSelecciona una opción:",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
     elif hasattr(update, 'callback_query') and update.callback_query:
         await update.callback_query.message.reply_text(
-            "🛠 *PANEL ADMIN*",
+            "🛠 *PANEL ADMIN*\n\nSelecciona una opción:",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
@@ -1211,6 +1220,138 @@ async def admin_pagos(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
+
+async def admin_talonario_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Callback para ver el talonario desde el panel admin"""
+    query = update.callback_query
+    await query.answer()
+    
+    db = get_db()
+    cursor = db.cursor()
+
+    try:
+        cursor.execute("""
+            SELECT r.id, r.nombre,
+                   COUNT(n.id) as vendidos
+            FROM rifas r
+            LEFT JOIN numeros n
+                ON r.id = n.rifa_id
+                AND n.pago_id IN (
+                    SELECT id FROM pagos WHERE estado = 'aprobado'
+                )
+            GROUP BY r.id, r.nombre
+        """)
+
+        rifas_list = cursor.fetchall()
+    finally:
+        return_db(db)
+
+    if not rifas_list:
+        keyboard = [[InlineKeyboardButton("◀️ Volver", callback_data="ir_admin")]]
+        await query.message.reply_text(
+            "❌ No hay rifas.",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    teclado = []
+
+    for rifa_id, nombre, vendidos in rifas_list:
+        teclado.append([
+            InlineKeyboardButton(
+                f"{nombre} | 🎟️ {vendidos} vendidos",
+                callback_data=f"talonario_{rifa_id}"
+            )
+        ])
+    
+    teclado.append([InlineKeyboardButton("◀️ Volver", callback_data="ir_admin")])
+
+    await query.message.reply_text(
+        "📒 *¿De qué rifa quieres ver el talonario?*",
+        reply_markup=InlineKeyboardMarkup(teclado),
+        parse_mode="Markdown"
+    )
+
+async def admin_crear_rifa_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Callback para crear rifa desde el panel admin"""
+    query = update.callback_query
+    await query.answer()
+    
+    await query.message.reply_text(
+        "🎟️ *Creación de rifa*\n\nEscribe el *nombre de la rifa*:",
+        parse_mode="Markdown"
+    )
+    return RIFA_NOMBRE
+
+async def admin_eliminar_rifa_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Callback para eliminar rifa desde el panel admin"""
+    query = update.callback_query
+    await query.answer()
+    
+    db = get_db()
+    cursor = db.cursor()
+
+    try:
+        cursor.execute("SELECT id, nombre FROM rifas")
+        rifas_list = cursor.fetchall()
+    finally:
+        return_db(db)
+
+    if not rifas_list:
+        keyboard = [[InlineKeyboardButton("◀️ Volver", callback_data="ir_admin")]]
+        await query.message.reply_text(
+            "❌ No hay rifas para eliminar.",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    teclado = []
+    for rifa_id, nombre in rifas_list:
+        teclado.append([
+            InlineKeyboardButton(
+                f"🗑️ {nombre}",
+                callback_data=f"confirmar_eliminar_{rifa_id}"
+            )
+        ])
+    
+    teclado.append([InlineKeyboardButton("◀️ Volver", callback_data="ir_admin")])
+
+    await query.message.reply_text(
+        "🗑️ *Selecciona la rifa a eliminar:*",
+        reply_markup=InlineKeyboardMarkup(teclado),
+        parse_mode="Markdown"
+    )
+
+async def confirmar_eliminar_rifa_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Confirmar eliminación de rifa"""
+    query = update.callback_query
+    await query.answer()
+
+    rifa_id = int(query.data.split("_")[2])
+
+    db = get_db()
+    cursor = db.cursor()
+
+    try:
+        cursor.execute("SELECT nombre FROM rifas WHERE id = %s", (rifa_id,))
+        rifa = cursor.fetchone()
+
+        if not rifa:
+            await query.message.reply_text("❌ Rifa no encontrada.")
+            return
+
+        # Eliminar la rifa (CASCADE elimina números y pagos)
+        cursor.execute("DELETE FROM rifas WHERE id = %s", (rifa_id,))
+        db.commit()
+    finally:
+        return_db(db)
+
+    keyboard = [[InlineKeyboardButton("◀️ Volver", callback_data="ir_admin")]]
+    await query.message.reply_text(
+        f"✅ Rifa *{rifa[0]}* eliminada correctamente.",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
 
 async def approbar_pago(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1421,7 +1562,10 @@ user_conv = ConversationHandler(
 )
 
 admin_conv = ConversationHandler(
-    entry_points=[CommandHandler("crearrifa", crear_rifa)],
+    entry_points=[
+        CommandHandler("crearrifa", crear_rifa),
+        CallbackQueryHandler(admin_crear_rifa_callback, pattern="^admin_crear_rifa$")
+    ],
     states={
         RIFA_NOMBRE: [MessageHandler(filters.TEXT & ~filters.COMMAND, rifa_nombre)],
         RIFA_PRECIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, rifa_precio)],
@@ -1457,6 +1601,12 @@ if __name__ == "__main__":
     app.add_handler(CallbackQueryHandler(ir_misboletas, pattern="^ir_misboletas$"))
     app.add_handler(CallbackQueryHandler(nueva_compra_callback, pattern="^nueva_compra$"))
     app.add_handler(CallbackQueryHandler(menu_principal_callback, pattern="^menu_principal$"))
+    
+    # Handlers para admin desde callbacks
+    app.add_handler(CallbackQueryHandler(admin_talonario_callback, pattern="^admin_talonario$"))
+    app.add_handler(CallbackQueryHandler(admin_crear_rifa_callback, pattern="^admin_crear_rifa$"))
+    app.add_handler(CallbackQueryHandler(admin_eliminar_rifa_callback, pattern="^admin_eliminar_rifa$"))
+    app.add_handler(CallbackQueryHandler(confirmar_eliminar_rifa_callback, pattern="^confirmar_eliminar_"))
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("comprar", comprar))
