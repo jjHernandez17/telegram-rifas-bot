@@ -62,7 +62,7 @@ def init_db():
             id SERIAL PRIMARY KEY,
             rifa_id INTEGER REFERENCES rifas(id) ON DELETE CASCADE,
             numero INTEGER,
-            user_id INTEGER,
+            user_id BIGINT,
             pago_id INTEGER,
             reservado INTEGER DEFAULT 0
         )
@@ -71,7 +71,7 @@ def init_db():
         # USUARIOS
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
-            user_id INTEGER PRIMARY KEY,
+            user_id BIGINT PRIMARY KEY,
             username TEXT,
             nombre TEXT,
             telefono TEXT
@@ -82,7 +82,7 @@ def init_db():
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS pagos (
             id SERIAL PRIMARY KEY,
-            user_id INTEGER,
+            user_id BIGINT,
             rifa_id INTEGER REFERENCES rifas(id) ON DELETE CASCADE,
             comprobante TEXT,
             estado TEXT,
