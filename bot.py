@@ -62,7 +62,6 @@ async def menu_principal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🧑 Registrarse", callback_data="empezar")],
         [InlineKeyboardButton("🎟️ Mis boletas", callback_data="ir_misboletas")],
-        [InlineKeyboardButton("🛍️ Nueva compra", callback_data="nueva_compra")],
     ]
     
     # Agregar botón admin si es admin
