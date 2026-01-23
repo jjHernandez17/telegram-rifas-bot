@@ -104,6 +104,22 @@ async def empezar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return NOMBRE
 
+async def ir_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if query.from_user.id != ADMIN_ID:
+        await query.message.reply_text("⛔ No autorizado")
+        return
+    
+    await admin_panel(query, context)
+
+async def ir_misboletas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    await mis_boletas_callback(query, context)
+
 async def recibir_nombre(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["nombre"] = update.message.text
 
@@ -595,7 +611,73 @@ async def mis_boletas(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pagos = cursor.fetchall()
 
         if not pagos:
-            await update.message.reply_text(
+            msg = (
+                "📭 *No tienes compras registradas aún.*"
+            )
+            if hasattr(update, 'message'):
+                await update.message.reply_text(msg, parse_mode="Markdown")
+            else:
+                await update.reply_text(msg, parse_mode="Markdown")
+            return
+
+        texto = "🎟️ *MIS BOLETAS*\n\n"
+
+        import time
+        from datetime import datetime
+
+        for pago_id, rifa_nombre, estado, timestamp in pagos:
+            cursor.execute("""
+                SELECT numero
+                FROM numeros
+                WHERE pago_id = %s
+                ORDER BY numero
+            """, (pago_id,))
+
+            numeros = [str(n[0]) for n in cursor.fetchall()]
+            fecha = datetime.fromtimestamp(timestamp).strftime("%d/%m/%Y %H:%M")
+
+            estado_txt = {
+                "pendiente": "⏳ Pendiente de pago",
+                "en_revision": "🔍 En revisión",
+                "aprobado": "✅ Aprobado",
+                "rechazado": "❌ Rechazado"
+            }.get(estado, estado)
+
+            texto += (
+                f"🎫 *Rifa:* {rifa_nombre}\n"
+                f"🎟️ *Números:* {', '.join(numeros) if numeros else '—'}\n"
+                f"💳 *Estado:* {estado_txt}\n"
+                f"🕒 *Fecha:* {fecha}\n"
+                "──────────────\n"
+            )
+    finally:
+        return_db(db)
+
+    if hasattr(update, 'message'):
+        await update.message.reply_text(texto, parse_mode="Markdown")
+    else:
+        await update.reply_text(texto, parse_mode="Markdown")
+
+async def mis_boletas_callback(query, context: ContextTypes.DEFAULT_TYPE):
+    """Versión para callback de mis_boletas"""
+    user_id = query.from_user.id
+
+    db = get_db()
+    cursor = db.cursor()
+
+    try:
+        cursor.execute("""
+            SELECT p.id, r.nombre, p.estado, p.timestamp
+            FROM pagos p
+            JOIN rifas r ON r.id = p.rifa_id
+            WHERE p.user_id = %s AND p.estado = 'aprobado'
+            ORDER BY p.timestamp DESC
+        """, (user_id,))
+
+        pagos = cursor.fetchall()
+
+        if not pagos:
+            await query.message.reply_text(
                 "📭 *No tienes compras registradas aún.*",
                 parse_mode="Markdown"
             )
@@ -634,10 +716,7 @@ async def mis_boletas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     finally:
         return_db(db)
 
-    await update.message.reply_text(
-        texto,
-        parse_mode="Markdown"
-    )
+    await query.message.reply_text(texto, parse_mode="Markdown")
 
 def get_estadisticas_rifa(rifa_id):
     db = get_db()
@@ -1142,6 +1221,13 @@ async def acciones_admin(update, context):
         user_id, rifa_id = pago
 
         if accion == "aprobar":
+            # Obtener números del pago
+            cursor.execute("""
+                SELECT numero FROM numeros WHERE pago_id = %s ORDER BY numero
+            """, (pago_id,))
+            numeros = [str(n[0]) for n in cursor.fetchall()]
+            numeros_texto = ", ".join(numeros)
+
             # Aprobar pago
             cursor.execute("""
                 UPDATE pagos
@@ -1157,7 +1243,8 @@ async def acciones_admin(update, context):
                 text=(
                     "✅ *Pago APROBADO*\n\n"
                     "🎉 Tu comprobante fue verificado correctamente.\n"
-                    "🎟️ Tus números ya están asegurados.\n\n"
+                    f"🎟️ *Tus números:* {numeros_texto}\n"
+                    "Tus números ya están asegurados.\n\n"
                     "Puedes comunicarte con el admin si tienes alguna duda\n"
                     "¡Mucha suerte en la rifa! 🍀"
                 ),
@@ -1250,6 +1337,10 @@ if __name__ == "__main__":
     app.add_handler(CallbackQueryHandler(confirmar, pattern="^confirmar$"))
     app.add_handler(CallbackQueryHandler(ir_pag_0, pattern="^pag_0$"))
     app.add_handler(CallbackQueryHandler(ir_pag_1, pattern="^pag_1$"))
+    
+    # Nuevos handlers para botones
+    app.add_handler(CallbackQueryHandler(ir_admin, pattern="^ir_admin$"))
+    app.add_handler(CallbackQueryHandler(ir_misboletas, pattern="^ir_misboletas$"))
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("comprar", comprar))
