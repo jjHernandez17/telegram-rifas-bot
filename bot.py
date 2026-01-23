@@ -53,6 +53,38 @@ async def es_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return False
 
 # =====================
+# MENÚ PRINCIPAL
+# =====================
+async def menu_principal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Muestra el menú principal con botones de navegación"""
+    user_id = update.effective_user.id if hasattr(update, 'effective_user') else update.from_user.id
+    
+    keyboard = [
+        [InlineKeyboardButton("🧑 Registrarse", callback_data="empezar")],
+        [InlineKeyboardButton("🎟️ Mis boletas", callback_data="ir_misboletas")],
+        [InlineKeyboardButton("🛍️ Nueva compra", callback_data="nueva_compra")],
+    ]
+    
+    # Agregar botón admin si es admin
+    if user_id == ADMIN_ID:
+        keyboard.append([InlineKeyboardButton("🛠 Panel Admin", callback_data="ir_admin")])
+    
+    texto = "📱 *MENÚ PRINCIPAL*\n\nSelecciona una opción:"
+    
+    if hasattr(update, 'callback_query') and update.callback_query:
+        await update.callback_query.message.reply_text(
+            texto,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+    elif hasattr(update, 'message') and update.message:
+        await update.message.reply_text(
+            texto,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+
+# =====================
 # BLOQUEAR MENSAJES EN GRUPO
 # =====================
 async def bloquear_grupo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -81,15 +113,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type != "private":
         return
 
-    keyboard = [
-        [InlineKeyboardButton("▶️ Empezar", callback_data="empezar")]
-    ]
-
     await update.message.reply_text(
-        "👋 Bienvenido al bot de rifas.\n\nPulsa *Empezar* para continuar.",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        "👋 Bienvenido al bot de rifas.\n\n¡Qué gusto verte por aquí! 🎉",
         parse_mode="Markdown"
     )
+    
+    await menu_principal(update, context)
 
 # =====================
 # REGISTRO DE USUARIO
@@ -119,6 +148,39 @@ async def ir_misboletas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     await mis_boletas_callback(query, context)
+
+async def nueva_compra_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Inicia flujo de nueva compra desde el botón"""
+    query = update.callback_query
+    await query.answer()
+    
+    # Verificar que el usuario esté registrado
+    db = get_db()
+    cursor = db.cursor()
+    
+    try:
+        cursor.execute("SELECT nombre FROM usuarios WHERE user_id = %s", (query.from_user.id,))
+        usuario = cursor.fetchone()
+    finally:
+        return_db(db)
+    
+    if not usuario:
+        # Usuario no registrado, iniciar registro
+        await query.message.reply_text(
+            "📝 Primero necesitamos tus datos. Escribe tu *nombre completo*:",
+            parse_mode="Markdown"
+        )
+        return NOMBRE
+    
+    # Usuario ya registrado, mostrar rifas
+    await mostrar_rifas_para_compra(update, context)
+
+async def menu_principal_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Botón para volver al menú principal"""
+    query = update.callback_query
+    await query.answer()
+    
+    await menu_principal(update, context)
 
 async def recibir_nombre(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["nombre"] = update.message.text
@@ -161,13 +223,14 @@ async def recibir_telefono(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-    await mostrar_rifas(update, context)
+    await mostrar_rifas_para_compra(update, context)
     return ConversationHandler.END
 
 # =====================
-# MOSTRAR RIFAS
+# MOSTRAR RIFAS PARA COMPRA
 # =====================
-async def mostrar_rifas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def mostrar_rifas_para_compra(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Muestra las rifas disponibles para compra"""
     db = get_db()
     cursor = db.cursor()
 
@@ -184,6 +247,7 @@ async def mostrar_rifas(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not rifas_list:
         await update.message.reply_text("❌ No hay rifas activas.")
+        await menu_principal(update, context)
         return
 
     texto = "🎟️ *Rifas disponibles:*\n\n"
@@ -198,16 +262,33 @@ async def mostrar_rifas(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         keyboard.append([
             InlineKeyboardButton(
-                f"🎟️ Elegir {nombre}",
+                f"🎟️ {nombre}",
                 callback_data=f"rifa_{rifa_id}"
             )
         ])
+    
+    # Agregar botón para volver al menú
+    keyboard.append([InlineKeyboardButton("◀️ Volver", callback_data="menu_principal")])
 
-    await update.message.reply_text(
-        texto,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
-    )
+    if hasattr(update, 'callback_query') and update.callback_query:
+        await update.callback_query.message.reply_text(
+            texto,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+    elif hasattr(update, 'message') and update.message:
+        await update.message.reply_text(
+            texto,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+
+# =====================
+# MOSTRAR RIFAS (LEGACY)
+# =====================
+async def mostrar_rifas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Alias para mantener compatibilidad"""
+    await mostrar_rifas_para_compra(update, context)
 
 async def comando_talonario(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
@@ -677,8 +758,10 @@ async def mis_boletas_callback(query, context: ContextTypes.DEFAULT_TYPE):
         pagos = cursor.fetchall()
 
         if not pagos:
+            keyboard = [[InlineKeyboardButton("◀️ Volver", callback_data="menu_principal")]]
             await query.message.reply_text(
                 "📭 *No tienes compras registradas aún.*",
+                reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode="Markdown"
             )
             return
@@ -716,7 +799,12 @@ async def mis_boletas_callback(query, context: ContextTypes.DEFAULT_TYPE):
     finally:
         return_db(db)
 
-    await query.message.reply_text(texto, parse_mode="Markdown")
+    keyboard = [[InlineKeyboardButton("◀️ Volver", callback_data="menu_principal")]]
+    await query.message.reply_text(
+        texto,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
 
 def get_estadisticas_rifa(rifa_id):
     db = get_db()
@@ -1014,20 +1102,37 @@ async def recibir_comprobante(update, context):
     )
 
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("⛔ Acceso denegado")
+    # Manejar tanto Update como CallbackQuery
+    if hasattr(update, 'effective_user'):
+        user_id = update.effective_user.id
+    else:
+        user_id = update.from_user.id
+    
+    if user_id != ADMIN_ID:
+        if hasattr(update, 'message'):
+            await update.message.reply_text("⛔ Acceso denegado")
+        else:
+            await update.callback_query.message.reply_text("⛔ Acceso denegado")
         return
 
     keyboard = [
         [InlineKeyboardButton("📊 Estadísticas", callback_data="admin_stats")],
         [InlineKeyboardButton("📥 Pagos pendientes", callback_data="admin_pagos")],
+        [InlineKeyboardButton("◀️ Volver", callback_data="menu_principal")],
     ]
 
-    await update.message.reply_text(
-        "🛠 *PANEL ADMIN*",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
-    )
+    if hasattr(update, 'message') and update.message:
+        await update.message.reply_text(
+            "🛠 *PANEL ADMIN*",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+    elif hasattr(update, 'callback_query') and update.callback_query:
+        await update.callback_query.message.reply_text(
+            "🛠 *PANEL ADMIN*",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
 
 async def admin_estadisticas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1058,7 +1163,12 @@ async def admin_estadisticas(update: Update, context: ContextTypes.DEFAULT_TYPE)
     finally:
         return_db(db)
 
-    await query.message.reply_text(texto, parse_mode="Markdown")
+    keyboard = [[InlineKeyboardButton("◀️ Volver", callback_data="ir_admin")]]
+    await query.message.reply_text(
+        texto,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
 
 async def admin_pagos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1079,7 +1189,11 @@ async def admin_pagos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return_db(db)
 
     if not pagos:
-        await query.message.reply_text("✅ No hay pagos pendientes.")
+        keyboard = [[InlineKeyboardButton("◀️ Volver", callback_data="ir_admin")]]
+        await query.message.reply_text(
+            "✅ No hay pagos pendientes.",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
         return
 
     for pago_id, user_id, rifa_id in pagos:
@@ -1341,6 +1455,8 @@ if __name__ == "__main__":
     # Nuevos handlers para botones
     app.add_handler(CallbackQueryHandler(ir_admin, pattern="^ir_admin$"))
     app.add_handler(CallbackQueryHandler(ir_misboletas, pattern="^ir_misboletas$"))
+    app.add_handler(CallbackQueryHandler(nueva_compra_callback, pattern="^nueva_compra$"))
+    app.add_handler(CallbackQueryHandler(menu_principal_callback, pattern="^menu_principal$"))
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("comprar", comprar))
