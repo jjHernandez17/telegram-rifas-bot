@@ -1552,18 +1552,19 @@ async def acciones_admin(update, context):
 # CONVERSACIONES
 # =====================
 user_conv = ConversationHandler(
-    entry_points=[CallbackQueryHandler(empezar, pattern="^empezar$")],
+    entry_points=[CallbackQueryHandler(empezar, pattern="^empezar$", per_message=False)],
     states={
         NOMBRE: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_nombre)],
         TELEFONO: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_telefono)],
     },
     fallbacks=[],
+    per_message=False,
 )
 
 admin_conv = ConversationHandler(
     entry_points=[
         CommandHandler("crearrifa", crear_rifa),
-        CallbackQueryHandler(admin_crear_rifa_callback, pattern="^admin_crear_rifa$")
+        CallbackQueryHandler(admin_crear_rifa_callback, pattern="^admin_crear_rifa$", per_message=False)
     ],
     states={
         RIFA_NOMBRE: [MessageHandler(filters.TEXT & ~filters.COMMAND, rifa_nombre)],
@@ -1573,6 +1574,7 @@ admin_conv = ConversationHandler(
         RIFA_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, rifa_desc)],
     },
     fallbacks=[],
+    per_message=False,
 )
 
 # =====================
