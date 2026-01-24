@@ -972,21 +972,31 @@ async def crear_rifa(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return RIFA_NOMBRE
 
 async def rifa_nombre(update, context):
-    context.user_data["rifa"] = {"nombre": update.message.text}
+    # Inicializar si no existe (por si viene del callback)
+    if "rifa" not in context.user_data:
+        context.user_data["rifa"] = {}
+    
+    context.user_data["rifa"]["nombre"] = update.message.text
     await update.message.reply_text("💰 Precio por boleta:")
     return RIFA_PRECIO
 
 async def rifa_precio(update, context):
+    if "rifa" not in context.user_data:
+        context.user_data["rifa"] = {}
     context.user_data["rifa"]["precio"] = update.message.text
     await update.message.reply_text("🏆 Premio de la rifa:")
     return RIFA_PREMIO
 
 async def rifa_premio(update, context):
+    if "rifa" not in context.user_data:
+        context.user_data["rifa"] = {}
     context.user_data["rifa"]["premio"] = update.message.text
     await update.message.reply_text("📅 Fecha del sorteo:")
     return RIFA_FECHA
 
 async def rifa_fecha(update, context):
+    if "rifa" not in context.user_data:
+        context.user_data["rifa"] = {}
     context.user_data["rifa"]["fecha"] = update.message.text
     await update.message.reply_text(
         "📝 Descripción (o escribe *ninguna*):",
@@ -995,6 +1005,10 @@ async def rifa_fecha(update, context):
     return RIFA_DESC
 
 async def rifa_desc(update, context):
+    if "rifa" not in context.user_data:
+        await update.message.reply_text("❌ Error: sesión expirada. Intenta de nuevo.")
+        return ConversationHandler.END
+    
     rifa = context.user_data["rifa"]
 
     db = get_db()
@@ -1275,6 +1289,9 @@ async def admin_crear_rifa_callback(update: Update, context: ContextTypes.DEFAUL
     """Callback para crear rifa desde el panel admin"""
     query = update.callback_query
     await query.answer()
+    
+    # Marcar que estamos creando rifa
+    context.user_data["creando_rifa"] = True
     
     await query.message.reply_text(
         "🎟️ *Creación de rifa*\n\nEscribe el *nombre de la rifa*:",
