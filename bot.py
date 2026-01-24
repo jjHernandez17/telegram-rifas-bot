@@ -1286,7 +1286,7 @@ async def admin_talonario_callback(update: Update, context: ContextTypes.DEFAULT
     )
 
 async def admin_crear_rifa_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Callback para crear rifa desde el panel admin"""
+    """Callback para crear rifa desde el panel admin - Entry point del ConversationHandler"""
     query = update.callback_query
     await query.answer()
     
@@ -1297,6 +1297,7 @@ async def admin_crear_rifa_callback(update: Update, context: ContextTypes.DEFAUL
         "🎟️ *Creación de rifa*\n\nEscribe el *nombre de la rifa*:",
         parse_mode="Markdown"
     )
+    return RIFA_NOMBRE
 
 async def admin_eliminar_rifa_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Callback para eliminar rifa desde el panel admin"""
@@ -1579,7 +1580,6 @@ user_conv = ConversationHandler(
 
 admin_conv = ConversationHandler(
     entry_points=[
-        CommandHandler("crearrifa", crear_rifa),
         CallbackQueryHandler(admin_crear_rifa_callback, pattern="^admin_crear_rifa$")
     ],
     states={
@@ -1629,9 +1629,6 @@ if __name__ == "__main__":
 
     app.add_handler(user_conv)
     app.add_handler(admin_conv)
-    
-    # Esto DEBE ir DESPUÉS de los ConversationHandlers
-    app.add_handler(CallbackQueryHandler(admin_crear_rifa_callback, pattern="^admin_crear_rifa$"))
     
     app.add_handler(MessageHandler(filters.PHOTO, recibir_comprobante))
     app.add_handler(
