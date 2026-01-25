@@ -440,7 +440,9 @@ async def enviar_comprobante_admin(context, pago_id, user_id, rifa_id, file_id):
         f"👤 <b>Usuario:</b> {nombre}\n"
         f"🆔 <b>ID:</b> {user_id}\n"
         f"🎟️ <b>Números:</b> {numeros}\n"
-        f"💰 <b>Monto:</b> ${monto}\n"
+        f"� <b>Cantidad:</b> {cantidad} boletas\n"
+        f"💵 <b>Valor unitario:</b> ${precio:,}\n"
+        f"💰 <b>MONTO ESPERADO:</b> <b>${monto:,}</b>\n"
     )
 
     if minutos > 10:
@@ -509,6 +511,11 @@ async def confirmar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cursor = db.cursor()
 
     try:
+        # Obtener precio de la rifa
+        cursor.execute("SELECT precio FROM rifas WHERE id = %s", (rifa_id,))
+        precio_result = cursor.fetchone()
+        precio = precio_result[0] if precio_result else 0
+        
         # 🔒 Verificar que sigan libres
         placeholders = ",".join(["%s"] * len(seleccionados))
         cursor.execute(f"""
@@ -553,6 +560,10 @@ async def confirmar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     finally:
         return_db(db)
 
+    # Calcular monto total
+    cantidad_numeros = len(seleccionados)
+    monto_total = precio * cantidad_numeros
+
     # Eliminar el mensaje con la tabla de números
     try:
         await query.message.delete()
@@ -561,8 +572,11 @@ async def confirmar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await query.message.reply_text(
         "✅ *RESERVA CONFIRMADA*\n\n"
-        f"🎟️ *Números elegidos:* {', '.join(map(str, sorted(seleccionados)))}\n\n"
-        "💰 *Métodos de pago:*\n"
+        f"🎟️ *Números elegidos:* {', '.join(map(str, sorted(seleccionados)))}\n"
+        f"🔢 *Cantidad de boletas:* {cantidad_numeros}\n"
+        f"💵 *Valor unitario:* ${precio:,}\n"
+        f"💰 *TOTAL A PAGAR:* ${monto_total:,}\n\n"
+        "*Métodos de pago:*\n"
         "🏦 BANCOLOMBIA: `91952487464`\n"
         "📲 NEQUI: `3217895801`\n\n"
         "📸 *Envía ahora el comprobante de pago (foto).*\n"
