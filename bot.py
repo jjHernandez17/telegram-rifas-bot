@@ -553,6 +553,12 @@ async def confirmar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     finally:
         return_db(db)
 
+    # Eliminar el mensaje con la tabla de números
+    try:
+        await query.message.delete()
+    except:
+        pass
+
     await query.message.reply_text(
         "✅ *RESERVA CONFIRMADA*\n\n"
         f"🎟️ *Números elegidos:* {', '.join(map(str, sorted(seleccionados)))}\n\n"
