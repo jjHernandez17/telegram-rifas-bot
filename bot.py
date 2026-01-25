@@ -61,7 +61,8 @@ async def menu_principal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = [
         [InlineKeyboardButton("🧑 Registrarse", callback_data="empezar")],
-        [InlineKeyboardButton("🎟️ Mis boletas", callback_data="ir_misboletas")],
+        [InlineKeyboardButton("🎟️ Ver rifas disponibles", callback_data="ver_rifas")],
+        [InlineKeyboardButton("🎫 Mis boletas", callback_data="ir_misboletas")],
     ]
     
     # Agregar botón admin si es admin
@@ -177,6 +178,62 @@ async def nueva_compra_callback(update: Update, context: ContextTypes.DEFAULT_TY
 async def menu_principal_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Botón para volver al menú principal"""
     query = update.callback_query
+    await query.answer()
+    
+    await menu_principal(update, context)
+
+async def ver_rifas_disponibles_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Muestra todas las rifas disponibles con su información"""
+    query = update.callback_query
+    await query.answer()
+    
+    db = get_db()
+    cursor = db.cursor()
+
+    try:
+        cursor.execute("""
+            SELECT r.id, r.nombre, r.precio, r.total_numeros,
+                   COUNT(CASE WHEN n.reservado = 1 THEN 1 END) as reservados
+            FROM rifas r
+            LEFT JOIN numeros n ON r.id = n.rifa_id
+            WHERE r.activa = 1
+            GROUP BY r.id, r.nombre, r.precio, r.total_numeros
+            ORDER BY r.id DESC
+        """)
+
+        rifas_list = cursor.fetchall()
+    finally:
+        return_db(db)
+
+    if not rifas_list:
+        keyboard = [[InlineKeyboardButton("◀️ Volver", callback_data="menu_principal")]]
+        await query.message.reply_text(
+            "❌ No hay rifas activas en este momento.",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    texto = "🎟️ *RIFAS DISPONIBLES*\n\n"
+
+    for rifa_id, nombre, precio, total_numeros, reservados in rifas_list:
+        disponibles = total_numeros - reservados
+        porcentaje_vendido = (reservados / total_numeros * 100) if total_numeros > 0 else 0
+        
+        texto += (
+            f"🎯 *{nombre}*\n"
+            f"🆔 ID: {rifa_id}\n"
+            f"💵 Precio por boleta: ${precio:,}\n"
+            f"📊 Disponibles: {disponibles}/{total_numeros} ({porcentaje_vendido:.1f}% vendido)\n"
+            f"──────────────\n\n"
+        )
+    
+    keyboard = [[InlineKeyboardButton("◀️ Volver", callback_data="menu_principal")]]
+
+    await query.message.reply_text(
+        texto,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
     await query.answer()
     
     await menu_principal(update, context)
@@ -1661,6 +1718,7 @@ if __name__ == "__main__":
     app.add_handler(CallbackQueryHandler(ir_misboletas, pattern="^ir_misboletas$"))
     app.add_handler(CallbackQueryHandler(nueva_compra_callback, pattern="^nueva_compra$"))
     app.add_handler(CallbackQueryHandler(menu_principal_callback, pattern="^menu_principal$"))
+    app.add_handler(CallbackQueryHandler(ver_rifas_disponibles_callback, pattern="^ver_rifas$"))
     
     # Handlers para admin desde callbacks
     app.add_handler(CallbackQueryHandler(admin_talonario_callback, pattern="^admin_talonario$"))
