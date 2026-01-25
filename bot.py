@@ -1066,8 +1066,9 @@ async def recibir_comprobante(update, context):
     cursor = db.cursor()
 
     try:
+        # Validar que hay un pago pendiente
         cursor.execute("""
-            SELECT id, rifa_id, timestamp
+            SELECT id, rifa_id, timestamp, estado
             FROM pagos
             WHERE user_id = %s
             ORDER BY timestamp DESC
@@ -1082,8 +1083,17 @@ async def recibir_comprobante(update, context):
                 "Escribe /start para comenzar nuevamente."
             )
             return
+        
+        pago_id, rifa_id, inicio, estado = pago
+        
+        # Solo aceptar comprobante si el pago está en estado "pendiente"
+        if estado != "pendiente":
+            await update.message.reply_text(
+                "⚠️ No puedes enviar comprobante ahora.\n\n"
+                "Escribe /start para hacer una nueva compra."
+            )
+            return
 
-        pago_id, rifa_id, inicio = pago
         minutos = (ahora - inicio) // 60
 
         if minutos >= 10:
@@ -1568,11 +1578,24 @@ async def acciones_admin(update, context):
 # =====================
 # CONVERSACIONES
 # =====================
+async def rechazar_archivo_durante_registro(update, context):
+    """Rechaza archivos/fotos durante el registro"""
+    await update.message.reply_text(
+        "❌ Durante el registro solo puedo recibir texto.\n\n"
+        "Por favor, continúa escribiendo la información que te solicito."
+    )
+
 user_conv = ConversationHandler(
     entry_points=[CallbackQueryHandler(empezar, pattern="^empezar$")],
     states={
-        NOMBRE: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_nombre)],
-        TELEFONO: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_telefono)],
+        NOMBRE: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_nombre),
+            MessageHandler(filters.PHOTO | filters.Document.ALL, rechazar_archivo_durante_registro)
+        ],
+        TELEFONO: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_telefono),
+            MessageHandler(filters.PHOTO | filters.Document.ALL, rechazar_archivo_durante_registro)
+        ],
     },
     fallbacks=[],
     per_message=False,
