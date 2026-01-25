@@ -1225,6 +1225,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📊 Estadísticas", callback_data="admin_stats")],
         [InlineKeyboardButton("📥 Pagos pendientes", callback_data="admin_pagos")],
         [InlineKeyboardButton("📒 Talonario", callback_data="admin_talonario")],
+        [InlineKeyboardButton("📄 PDF Talonario", callback_data="admin_pdf_talonario")],
         [InlineKeyboardButton("🎟️ Crear rifa", callback_data="admin_crear_rifa")],
         [InlineKeyboardButton("🗑️ Eliminar rifa", callback_data="admin_eliminar_rifa")],
         [InlineKeyboardButton("◀️ Volver", callback_data="menu_principal")],
@@ -1455,6 +1456,189 @@ async def confirmar_eliminar_rifa_callback(update: Update, context: ContextTypes
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
+
+async def admin_pdf_talonario_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Callback para generar PDF del talonario desde el panel admin"""
+    query = update.callback_query
+    await query.answer()
+    
+    db = get_db()
+    cursor = db.cursor()
+
+    try:
+        cursor.execute("""
+            SELECT r.id, r.nombre,
+                   COUNT(n.id) as vendidos
+            FROM rifas r
+            LEFT JOIN numeros n
+                ON r.id = n.rifa_id
+                AND n.pago_id IN (
+                    SELECT id FROM pagos WHERE estado = 'aprobado'
+                )
+            GROUP BY r.id, r.nombre
+        """)
+
+        rifas_list = cursor.fetchall()
+    finally:
+        return_db(db)
+
+    if not rifas_list:
+        keyboard = [[InlineKeyboardButton("◀️ Volver", callback_data="ir_admin")]]
+        await query.message.reply_text(
+            "❌ No hay rifas.",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    teclado = []
+
+    for rifa_id, nombre, vendidos in rifas_list:
+        teclado.append([
+            InlineKeyboardButton(
+                f"📄 {nombre} | 🎟️ {vendidos} vendidos",
+                callback_data=f"generar_pdf_{rifa_id}"
+            )
+        ])
+    
+    teclado.append([InlineKeyboardButton("◀️ Volver", callback_data="ir_admin")])
+
+    await query.message.reply_text(
+        "📄 *¿De qué rifa quieres generar el PDF del talonario?*",
+        reply_markup=InlineKeyboardMarkup(teclado),
+        parse_mode="Markdown"
+    )
+
+async def generar_pdf_talonario_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Genera PDF del talonario de una rifa"""
+    query = update.callback_query
+    await query.answer()
+
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("⛔ No autorizado", show_alert=True)
+        return
+
+    rifa_id = int(query.data.split("_")[2])
+
+    await query.message.reply_text("⏳ Generando PDF del talonario...")
+
+    try:
+        pdf_path = await generar_pdf_talonario(rifa_id)
+        
+        # Enviar PDF al admin
+        with open(pdf_path, 'rb') as pdf_file:
+            await query.message.reply_document(
+                document=pdf_file,
+                caption="📄 *Talonario de la rifa*",
+                parse_mode="Markdown"
+            )
+        
+        # Eliminar archivo temporal
+        import os
+        os.remove(pdf_path)
+        
+    except Exception as e:
+        await query.message.reply_text(f"❌ Error al generar PDF: {str(e)}")
+
+async def generar_pdf_talonario(rifa_id):
+    """Genera el archivo PDF del talonario"""
+    from reportlab.lib.pagesizes import letter, A4
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.lib import colors
+    from datetime import datetime
+    import tempfile
+    import os
+
+    db = get_db()
+    cursor = db.cursor()
+
+    try:
+        # Información de la rifa
+        cursor.execute("SELECT nombre FROM rifas WHERE id = %s", (rifa_id,))
+        rifa = cursor.fetchone()
+
+        if not rifa:
+            raise Exception("Rifa no encontrada")
+
+        nombre_rifa = rifa[0]
+
+        # Talonario completo
+        cursor.execute("""
+            SELECT n.numero,
+                   COALESCE(u.nombre, 'DISPONIBLE') as nombre,
+                   COALESCE(u.username, '') as username,
+                   COALESCE(u.telefono, '') as telefono,
+                   CASE 
+                       WHEN p.estado = 'aprobado' THEN 'VENDIDO'
+                       WHEN p.estado = 'pendiente' THEN 'RESERVADO'
+                       WHEN p.estado = 'en_revision' THEN 'EN REVISIÓN'
+                       ELSE 'DISPONIBLE'
+                   END as estado
+            FROM numeros n
+            LEFT JOIN pagos p ON n.pago_id = p.id
+            LEFT JOIN usuarios u ON u.user_id = n.user_id
+            WHERE n.rifa_id = %s
+            ORDER BY n.numero
+        """, (rifa_id,))
+
+        datos = cursor.fetchall()
+    finally:
+        return_db(db)
+
+    # Crear archivo temporal
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+    temp_file.close()
+
+    # Crear PDF
+    doc = SimpleDocTemplate(temp_file.name, pagesize=A4)
+    styles = getSampleStyleSheet()
+    story = []
+
+    # Título
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=16,
+        spaceAfter=30,
+        alignment=1  # Centrado
+    )
+
+    story.append(Paragraph(f"TALONARIO - {nombre_rifa}", title_style))
+    story.append(Paragraph(f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
+    story.append(Spacer(1, 20))
+
+    # Tabla de datos
+    table_data = [['#', 'Nombre', 'Usuario', 'Teléfono', 'Estado']]
+    
+    for numero, nombre, username, telefono, estado in datos:
+        table_data.append([
+            str(numero).zfill(2),
+            nombre[:20],  # Limitar longitud
+            f"@{username[:15]}" if username else "",
+            telefono[:15],
+            estado
+        ])
+
+    # Crear tabla
+    table = Table(table_data, colWidths=[0.5*inch, 2*inch, 1.5*inch, 1.5*inch, 1*inch])
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ('FONTSIZE', (0, 1), (-1, -1), 8),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey])
+    ]))
+
+    story.append(table)
+    doc.build(story)
+
+    return temp_file.name
 
 async def approbar_pago(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1722,6 +1906,8 @@ if __name__ == "__main__":
     
     # Handlers para admin desde callbacks
     app.add_handler(CallbackQueryHandler(admin_talonario_callback, pattern="^admin_talonario$"))
+    app.add_handler(CallbackQueryHandler(admin_pdf_talonario_callback, pattern="^admin_pdf_talonario$"))
+    app.add_handler(CallbackQueryHandler(generar_pdf_talonario_callback, pattern="^generar_pdf_"))
     app.add_handler(CallbackQueryHandler(admin_eliminar_rifa_callback, pattern="^admin_eliminar_rifa$"))
     app.add_handler(CallbackQueryHandler(confirmar_eliminar_rifa_callback, pattern="^confirmar_eliminar_"))
 
