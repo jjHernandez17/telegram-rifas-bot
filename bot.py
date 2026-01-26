@@ -1773,7 +1773,7 @@ async def generar_imagen_talonario(rifa_id):
     draw = ImageDraw.Draw(img)
 
     # Parámetros de la cuadrícula (coordenadas exactas medidas - NUEVA IMAGEN)
-    TABLE_X0 = 80     # borde izquierdo de la tabla
+    TABLE_X0 = 79     # borde izquierdo de la tabla
     TABLE_Y0 = 349      # borde superior de la tabla
     CELL_W = 96        # ancho de celda
     CELL_H = 95        # alto de celda
