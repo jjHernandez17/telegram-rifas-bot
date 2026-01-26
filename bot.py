@@ -1761,101 +1761,53 @@ async def generar_imagen_talonario(rifa_id):
     finally:
         return_db(db)
 
-    # Determinar cantidad de números (siempre del 00 al 99)
-    max_numero = 99
-    
     # Crear diccionario de estados
     estados = {num[0]: num[1] for num in numeros_data}
-    
-    # Configuración de imagen (10x10 para números 00-99)
-    cols = 10  # números por fila
-    rows = 10  # 10 filas para 100 números
-    
-    # Dimensiones
-    cell_width = 80
-    cell_height = 60
-    margin = 20
-    header_height = 100
-    
-    width = cols * cell_width + 2 * margin
-    height = rows * cell_height + 2 * margin + header_height
-    
-    # Crear imagen
-    img = Image.new('RGB', (width, height), 'white')
+
+    # Ruta de la imagen base diseñada
+    base_dir = os.path.dirname(__file__)
+    base_path = os.path.join(base_dir, "Tabla diseñada.png")
+
+    # Abrir imagen base y preparar para dibujar overlays
+    img = Image.open(base_path).convert("RGBA")
     draw = ImageDraw.Draw(img)
-    
-    # Intentar cargar fuente, usar default si no está disponible
-    try:
-        font_title = ImageFont.truetype("arial.ttf", 24)
-        font_number = ImageFont.truetype("arial.ttf", 16)
-    except:
-        font_title = ImageFont.load_default()
-        font_number = ImageFont.load_default()
-    
-    # Título
-    title_text = f"TALONARIO - {nombre_rifa}"
-    bbox = draw.textbbox((0, 0), title_text, font=font_title)
-    title_width = bbox[2] - bbox[0]
-    draw.text(((width - title_width) // 2, 20), title_text, fill='black', font=font_title)
-    
-    # Leyenda
-    legend_y = 60
-    legend_items = [
-        ("🟢 Disponible", 'green'),
-        ("🔴 Vendido", 'red'),
-        ("🟡 Reservado", 'orange'),
-        ("🟠 En Revisión", 'darkorange')
-    ]
-    
-    legend_x = margin
-    for item, color in legend_items:
-        draw.text((legend_x, legend_y), item, fill='black', font=font_number)
-        legend_x += 120
-    
-    # Colores por estado
+
+    # Parámetros de la cuadrícula (según la imagen diseñada)
+    tabla_x0 = 120  # inicio X de la tabla
+    tabla_y0 = 420  # inicio Y de la tabla
+    cell_w = 139.8
+    cell_h = 140
+
+    # Colores para las marcas
     colores_estado = {
-        'DISPONIBLE': '#90EE90',    # Verde claro
-        'VENDIDO': '#FFB6C1',       # Rosa (vendido)
-        'RESERVADO': '#FFD700',     # Dorado
-        'EN_REVISION': '#FFA500'    # Naranja
+        'VENDIDO': (229, 57, 53, 255),      # rojo
+        'RESERVADO': (251, 192, 45, 230),   # amarillo
+        'EN_REVISION': (251, 140, 0, 230)   # naranja
     }
-    
-    # Dibujar números del 00 al 99
+
+    # Dibujar marcas sobre la imagen base (00-99)
     for num in range(0, 100):
-        row = num // cols
-        col = num % cols
-        
-        x = margin + col * cell_width
-        y = header_height + margin + row * cell_height
-        
-        # Estado del número
+        row = num // 10
+        col = num % 10
+
+        cx = tabla_x0 + col * cell_w + (cell_w / 2)
+        cy = tabla_y0 + row * cell_h + (cell_h / 2)
+
         estado = estados.get(num, 'DISPONIBLE')
-        color = colores_estado[estado]
-        
-        # Dibujar celda
-        draw.rectangle([x, y, x + cell_width - 2, y + cell_height - 2], 
-                      fill=color, outline='black', width=2)
-        
-        # Número
-        num_text = str(num).zfill(2)
-        bbox = draw.textbbox((0, 0), num_text, font=font_number)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
-        
-        text_x = x + (cell_width - text_width) // 2
-        text_y = y + (cell_height - text_height) // 2
-        
-        # Color de texto según estado
-        text_color = 'black' if estado != 'VENDIDO' else 'darkred'
-        draw.text((text_x, text_y), num_text, fill=text_color, font=font_number)
-        
-        # Tachado para vendidos
+
+        # Marcar según estado
         if estado == 'VENDIDO':
-            draw.line([x + 5, y + 5, x + cell_width - 7, y + cell_height - 7], 
-                     fill='red', width=3)
-            draw.line([x + 5, y + cell_height - 7, x + cell_width - 7, y + 5], 
-                     fill='red', width=3)
-    
+            offset = 55
+            draw.line([(cx - offset, cy - offset), (cx + offset, cy + offset)], fill=colores_estado['VENDIDO'], width=8)
+            draw.line([(cx - offset, cy + offset), (cx + offset, cy - offset)], fill=colores_estado['VENDIDO'], width=8)
+        elif estado == 'RESERVADO':
+            r = 48
+            draw.ellipse([(cx - r, cy - r), (cx + r, cy + r)], outline=colores_estado['RESERVADO'], width=10)
+        elif estado == 'EN_REVISION':
+            r = 48
+            draw.ellipse([(cx - r, cy - r), (cx + r, cy + r)], outline=colores_estado['EN_REVISION'], width=10)
+            draw.line([(cx - 40, cy), (cx + 40, cy)], fill=colores_estado['EN_REVISION'], width=6)
+
     # Crear archivo temporal
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
     temp_file.close()
