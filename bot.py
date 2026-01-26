@@ -1776,7 +1776,7 @@ async def generar_imagen_talonario(rifa_id):
     TABLE_X0 = 88     # borde izquierdo de la tabla
     TABLE_Y0 = 349      # borde superior de la tabla
     CELL_W = 91        # ancho de celda
-    CELL_H = 197        # alto de celda
+    CELL_H = 98        # alto de celda
 
     # Colores para las marcas (RGBA)
     colores_estado = {
