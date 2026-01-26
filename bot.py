@@ -1772,11 +1772,11 @@ async def generar_imagen_talonario(rifa_id):
     img = Image.open(base_path).convert("RGBA")
     draw = ImageDraw.Draw(img)
 
-    # Parámetros de la cuadrícula (coordenadas exactas medidas)
-    TABLE_X0 = 117      # borde izquierdo de la tabla
-    TABLE_Y0 = 532      # borde superior de la tabla
-    CELL_W = 140.3      # ancho promedio de celda
-    CELL_H = 144.2      # alto promedio de celda
+    # Parámetros de la cuadrícula (coordenadas exactas medidas - NUEVA IMAGEN)
+    TABLE_X0 = 420      # borde izquierdo de la tabla
+    TABLE_Y0 = 210      # borde superior de la tabla
+    CELL_W = 62         # ancho de celda
+    CELL_H = 102        # alto de celda
 
     # Colores para las marcas (RGBA)
     colores_estado = {
@@ -1784,6 +1784,11 @@ async def generar_imagen_talonario(rifa_id):
         'RESERVADO': (251, 192, 45, 255),   # amarillo
         'EN_REVISION': (251, 140, 0, 255)   # naranja
     }
+
+    # Tamaños de marcas (proporcionales al tamaño de celda)
+    marca_offset = 15   # tamaño de la X vendida
+    marca_radio = 12    # radio de círculos
+    marca_width = 3     # grosor de líneas
 
     # Dibujar marcas sobre la imagen base (00-99)
     for num in range(0, 100):
@@ -1799,23 +1804,25 @@ async def generar_imagen_talonario(rifa_id):
         # Marcar según estado
         if estado == 'VENDIDO':
             # X roja
-            offset = 25
-            draw.line([(centro_x - offset, centro_y - offset), (centro_x + offset, centro_y + offset)], 
-                     fill=colores_estado['VENDIDO'], width=6)
-            draw.line([(centro_x - offset, centro_y + offset), (centro_x + offset, centro_y - offset)], 
-                     fill=colores_estado['VENDIDO'], width=6)
+            draw.line([(centro_x - marca_offset, centro_y - marca_offset), 
+                      (centro_x + marca_offset, centro_y + marca_offset)], 
+                     fill=colores_estado['VENDIDO'], width=marca_width)
+            draw.line([(centro_x - marca_offset, centro_y + marca_offset), 
+                      (centro_x + marca_offset, centro_y - marca_offset)], 
+                     fill=colores_estado['VENDIDO'], width=marca_width)
         elif estado == 'RESERVADO':
             # Círculo amarillo
-            r = 20
-            draw.ellipse([(centro_x - r, centro_y - r), (centro_x + r, centro_y + r)], 
-                        outline=colores_estado['RESERVADO'], width=4)
+            draw.ellipse([(centro_x - marca_radio, centro_y - marca_radio), 
+                         (centro_x + marca_radio, centro_y + marca_radio)], 
+                        outline=colores_estado['RESERVADO'], width=marca_width)
         elif estado == 'EN_REVISION':
             # Círculo naranja con línea horizontal
-            r = 20
-            draw.ellipse([(centro_x - r, centro_y - r), (centro_x + r, centro_y + r)], 
-                        outline=colores_estado['EN_REVISION'], width=4)
-            draw.line([(centro_x - r, centro_y), (centro_x + r, centro_y)], 
-                     fill=colores_estado['EN_REVISION'], width=4)
+            draw.ellipse([(centro_x - marca_radio, centro_y - marca_radio), 
+                         (centro_x + marca_radio, centro_y + marca_radio)], 
+                        outline=colores_estado['EN_REVISION'], width=marca_width)
+            draw.line([(centro_x - marca_radio, centro_y), 
+                      (centro_x + marca_radio, centro_y)], 
+                     fill=colores_estado['EN_REVISION'], width=marca_width)
 
     # Crear archivo temporal
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
