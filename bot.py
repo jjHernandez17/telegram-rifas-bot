@@ -1774,8 +1774,8 @@ async def generar_imagen_talonario(rifa_id):
 
     # Parámetros de la cuadrícula (coordenadas exactas medidas - NUEVA IMAGEN)
     TABLE_X0 = 95      # borde izquierdo de la tabla
-    TABLE_Y0 = 370      # borde superior de la tabla
-    CELL_W = 62         # ancho de celda
+    TABLE_Y0 = 360      # borde superior de la tabla
+    CELL_W = 82         # ancho de celda
     CELL_H = 102        # alto de celda
 
     # Colores para las marcas (RGBA)
