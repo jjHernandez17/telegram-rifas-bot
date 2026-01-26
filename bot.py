@@ -1226,6 +1226,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📥 Pagos pendientes", callback_data="admin_pagos")],
         [InlineKeyboardButton("📒 Talonario", callback_data="admin_talonario")],
         [InlineKeyboardButton("📄 PDF Talonario", callback_data="admin_pdf_talonario")],
+        [InlineKeyboardButton("🖼️ Imagen Talonario", callback_data="admin_imagen_talonario")],
         [InlineKeyboardButton("🎟️ Crear rifa", callback_data="admin_crear_rifa")],
         [InlineKeyboardButton("🗑️ Eliminar rifa", callback_data="admin_eliminar_rifa")],
         [InlineKeyboardButton("◀️ Volver", callback_data="menu_principal")],
@@ -1640,6 +1641,230 @@ async def generar_pdf_talonario(rifa_id):
 
     return temp_file.name
 
+async def admin_imagen_talonario_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Callback para generar imagen del talonario desde el panel admin"""
+    query = update.callback_query
+    await query.answer()
+    
+    db = get_db()
+    cursor = db.cursor()
+
+    try:
+        cursor.execute("""
+            SELECT r.id, r.nombre,
+                   COUNT(n.id) as vendidos
+            FROM rifas r
+            LEFT JOIN numeros n
+                ON r.id = n.rifa_id
+                AND n.pago_id IN (
+                    SELECT id FROM pagos WHERE estado = 'aprobado'
+                )
+            GROUP BY r.id, r.nombre
+        """)
+
+        rifas_list = cursor.fetchall()
+    finally:
+        return_db(db)
+
+    if not rifas_list:
+        keyboard = [[InlineKeyboardButton("◀️ Volver", callback_data="ir_admin")]]
+        await query.message.reply_text(
+            "❌ No hay rifas.",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
+
+    teclado = []
+
+    for rifa_id, nombre, vendidos in rifas_list:
+        teclado.append([
+            InlineKeyboardButton(
+                f"🖼️ {nombre} | 🎟️ {vendidos} vendidos",
+                callback_data=f"generar_imagen_{rifa_id}"
+            )
+        ])
+    
+    teclado.append([InlineKeyboardButton("◀️ Volver", callback_data="ir_admin")])
+
+    await query.message.reply_text(
+        "🖼️ *¿De qué rifa quieres generar la imagen del talonario?*",
+        reply_markup=InlineKeyboardMarkup(teclado),
+        parse_mode="Markdown"
+    )
+
+async def generar_imagen_talonario_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Genera imagen del talonario de una rifa"""
+    query = update.callback_query
+    await query.answer()
+
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("⛔ No autorizado", show_alert=True)
+        return
+
+    rifa_id = int(query.data.split("_")[2])
+
+    await query.message.reply_text("⏳ Generando imagen del talonario...")
+
+    try:
+        imagen_path = await generar_imagen_talonario(rifa_id)
+        
+        # Enviar imagen al admin
+        with open(imagen_path, 'rb') as imagen_file:
+            await query.message.reply_photo(
+                photo=imagen_file,
+                caption="🖼️ *Talonario visual de la rifa*\n\n🟢 = Disponible\n🔴 = Vendido\n🟡 = Reservado\n🟠 = En Revisión",
+                parse_mode="Markdown"
+            )
+        
+        # Eliminar archivo temporal
+        import os
+        os.remove(imagen_path)
+        
+    except Exception as e:
+        await query.message.reply_text(f"❌ Error al generar imagen: {str(e)}")
+
+async def generar_imagen_talonario(rifa_id):
+    """Genera la imagen visual del talonario"""
+    from PIL import Image, ImageDraw, ImageFont
+    import tempfile
+    import os
+
+    db = get_db()
+    cursor = db.cursor()
+
+    try:
+        # Información de la rifa
+        cursor.execute("SELECT nombre FROM rifas WHERE id = %s", (rifa_id,))
+        rifa = cursor.fetchone()
+
+        if not rifa:
+            raise Exception("Rifa no encontrada")
+
+        nombre_rifa = rifa[0]
+
+        # Obtener números y sus estados
+        cursor.execute("""
+            SELECT n.numero,
+                   CASE 
+                       WHEN p.estado = 'aprobado' THEN 'VENDIDO'
+                       WHEN p.estado = 'pendiente' THEN 'RESERVADO'
+                       WHEN p.estado = 'en_revision' THEN 'EN_REVISION'
+                       ELSE 'DISPONIBLE'
+                   END as estado
+            FROM numeros n
+            LEFT JOIN pagos p ON n.pago_id = p.id
+            WHERE n.rifa_id = %s
+            ORDER BY n.numero
+        """, (rifa_id,))
+
+        numeros_data = cursor.fetchall()
+    finally:
+        return_db(db)
+
+    # Determinar cantidad de números (siempre del 00 al 99)
+    max_numero = 99
+    
+    # Crear diccionario de estados
+    estados = {num[0]: num[1] for num in numeros_data}
+    
+    # Configuración de imagen (10x10 para números 00-99)
+    cols = 10  # números por fila
+    rows = 10  # 10 filas para 100 números
+    
+    # Dimensiones
+    cell_width = 80
+    cell_height = 60
+    margin = 20
+    header_height = 100
+    
+    width = cols * cell_width + 2 * margin
+    height = rows * cell_height + 2 * margin + header_height
+    
+    # Crear imagen
+    img = Image.new('RGB', (width, height), 'white')
+    draw = ImageDraw.Draw(img)
+    
+    # Intentar cargar fuente, usar default si no está disponible
+    try:
+        font_title = ImageFont.truetype("arial.ttf", 24)
+        font_number = ImageFont.truetype("arial.ttf", 16)
+    except:
+        font_title = ImageFont.load_default()
+        font_number = ImageFont.load_default()
+    
+    # Título
+    title_text = f"TALONARIO - {nombre_rifa}"
+    bbox = draw.textbbox((0, 0), title_text, font=font_title)
+    title_width = bbox[2] - bbox[0]
+    draw.text(((width - title_width) // 2, 20), title_text, fill='black', font=font_title)
+    
+    # Leyenda
+    legend_y = 60
+    legend_items = [
+        ("🟢 Disponible", 'green'),
+        ("🔴 Vendido", 'red'),
+        ("🟡 Reservado", 'orange'),
+        ("🟠 En Revisión", 'darkorange')
+    ]
+    
+    legend_x = margin
+    for item, color in legend_items:
+        draw.text((legend_x, legend_y), item, fill='black', font=font_number)
+        legend_x += 120
+    
+    # Colores por estado
+    colores_estado = {
+        'DISPONIBLE': '#90EE90',    # Verde claro
+        'VENDIDO': '#FFB6C1',       # Rosa (vendido)
+        'RESERVADO': '#FFD700',     # Dorado
+        'EN_REVISION': '#FFA500'    # Naranja
+    }
+    
+    # Dibujar números del 00 al 99
+    for num in range(0, 100):
+        row = num // cols
+        col = num % cols
+        
+        x = margin + col * cell_width
+        y = header_height + margin + row * cell_height
+        
+        # Estado del número
+        estado = estados.get(num, 'DISPONIBLE')
+        color = colores_estado[estado]
+        
+        # Dibujar celda
+        draw.rectangle([x, y, x + cell_width - 2, y + cell_height - 2], 
+                      fill=color, outline='black', width=2)
+        
+        # Número
+        num_text = str(num).zfill(2)
+        bbox = draw.textbbox((0, 0), num_text, font=font_number)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        
+        text_x = x + (cell_width - text_width) // 2
+        text_y = y + (cell_height - text_height) // 2
+        
+        # Color de texto según estado
+        text_color = 'black' if estado != 'VENDIDO' else 'darkred'
+        draw.text((text_x, text_y), num_text, fill=text_color, font=font_number)
+        
+        # Tachado para vendidos
+        if estado == 'VENDIDO':
+            draw.line([x + 5, y + 5, x + cell_width - 7, y + cell_height - 7], 
+                     fill='red', width=3)
+            draw.line([x + 5, y + cell_height - 7, x + cell_width - 7, y + 5], 
+                     fill='red', width=3)
+    
+    # Crear archivo temporal
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+    temp_file.close()
+    
+    # Guardar imagen
+    img.save(temp_file.name, 'PNG')
+    
+    return temp_file.name
+
 async def approbar_pago(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -1908,6 +2133,8 @@ if __name__ == "__main__":
     app.add_handler(CallbackQueryHandler(admin_talonario_callback, pattern="^admin_talonario$"))
     app.add_handler(CallbackQueryHandler(admin_pdf_talonario_callback, pattern="^admin_pdf_talonario$"))
     app.add_handler(CallbackQueryHandler(generar_pdf_talonario_callback, pattern="^generar_pdf_"))
+    app.add_handler(CallbackQueryHandler(admin_imagen_talonario_callback, pattern="^admin_imagen_talonario$"))
+    app.add_handler(CallbackQueryHandler(generar_imagen_talonario_callback, pattern="^generar_imagen_"))
     app.add_handler(CallbackQueryHandler(admin_eliminar_rifa_callback, pattern="^admin_eliminar_rifa$"))
     app.add_handler(CallbackQueryHandler(confirmar_eliminar_rifa_callback, pattern="^confirmar_eliminar_"))
 
