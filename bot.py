@@ -1577,11 +1577,11 @@ async def generar_pdf_talonario(rifa_id):
                        ELSE 'DISPONIBLE'
                    END as estado
             FROM numeros n
-            LEFT JOIN pagos p ON n.pago_id = p.id
-            LEFT JOIN usuarios u ON u.user_id = n.user_id
+            LEFT JOIN pagos p ON n.pago_id = p.id AND p.rifa_id = %s
+            LEFT JOIN usuarios u ON p.user_id = u.user_id
             WHERE n.rifa_id = %s
             ORDER BY n.numero
-        """, (rifa_id,))
+        """, (rifa_id, rifa_id,))
 
         datos = cursor.fetchall()
     finally:
