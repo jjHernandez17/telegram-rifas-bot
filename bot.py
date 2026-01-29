@@ -127,8 +127,10 @@ async def empezar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
+    keyboard = [[InlineKeyboardButton("❌ Cancelar", callback_data="cancelar_registro")]]
     await query.message.reply_text(
         "📝 Escribe tu *nombre completo*:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
     return NOMBRE
@@ -148,6 +150,23 @@ async def ir_misboletas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     await mis_boletas_callback(query, context)
+
+async def cancelar_registro_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Cancela el proceso de registro"""
+    query = update.callback_query
+    await query.answer()
+    
+    # Limpiar datos del registro
+    context.user_data.clear()
+    
+    await query.message.reply_text(
+        "❌ *Registro cancelado.*\n\n"
+        "Puedes intentarlo de nuevo en cualquier momento.",
+        parse_mode="Markdown"
+    )
+    
+    await menu_principal(update, context)
+    return ConversationHandler.END
 
 async def nueva_compra_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Inicia flujo de nueva compra desde el botón"""
@@ -241,9 +260,11 @@ async def ver_rifas_disponibles_callback(update: Update, context: ContextTypes.D
 async def recibir_nombre(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["nombre"] = update.message.text
 
+    keyboard = [[InlineKeyboardButton("❌ Cancelar", callback_data="cancelar_registro")]]
     await update.message.reply_text(
         "📱 Escribe tu *número de celular*.\n\n"
         "⚠️ Asegúrate de que sea correcto.",
+        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
     return TELEFONO
@@ -2044,11 +2065,13 @@ user_conv = ConversationHandler(
     states={
         NOMBRE: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_nombre),
-            MessageHandler(filters.PHOTO | filters.Document.ALL, rechazar_archivo_durante_registro)
+            MessageHandler(filters.PHOTO | filters.Document.ALL, rechazar_archivo_durante_registro),
+            CallbackQueryHandler(cancelar_registro_callback, pattern="^cancelar_registro$")
         ],
         TELEFONO: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_telefono),
-            MessageHandler(filters.PHOTO | filters.Document.ALL, rechazar_archivo_durante_registro)
+            MessageHandler(filters.PHOTO | filters.Document.ALL, rechazar_archivo_durante_registro),
+            CallbackQueryHandler(cancelar_registro_callback, pattern="^cancelar_registro$")
         ],
     },
     fallbacks=[],
